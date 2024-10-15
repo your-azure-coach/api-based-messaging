@@ -225,7 +225,11 @@ az deployment group create `
 
 **5. Authenticate your clients**
 
+When using the default IDP, your clients can use the following token endpoint, with `https://management.azure.com/.default` as the scope:
 
+```
+https://login.microsoftonline.com/<tenantId>/oauth2/v2.0/token
+```
 
 ## Roadmap
 
