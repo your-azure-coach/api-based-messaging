@@ -1,0 +1,60 @@
+<policies>
+    <inbound>
+        <base />
+        <!-- Check if client has required role -->
+        <choose>
+            <when condition="@(((JArray)context.Variables["rbac-roles"]).Any(item => item.Value<string>() == "subscribe_*" || item.Value<string>() == "subscribe_##message-type##") == false)">
+                <return-response>
+                    <set-status code="403" reason="Forbidden" />
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                    <set-body>{ "error" : "Client does not have the required roles 'subscribe_##message-type##' or 'subscribe_*'" }</set-body>
+                </return-response>
+            </when>
+            <otherwise />
+        </choose>
+        <!--Acknowledge message from Event Grid-->
+        <set-method>POST</set-method>
+        <set-backend-service base-url="{{messaging-api-eventgrid-url}}" />
+        <authentication-managed-identity resource="https://eventgrid.azure.net" ignore-error="false" />
+        <rewrite-uri template="@("/topics/{{messaging-api-topic-name}}/eventsubscriptions/" + (string)context.Variables["rbac-id"] + "-##subscription-name##:acknowledge?api-version=2023-06-01-preview")" copy-unmatched-params="true" />
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+        </set-header>
+        <set-body template="none">@{
+        var ackRequest = new JObject();
+        ackRequest["lockTokens"] = new JArray(System.Net.WebUtility.UrlDecode(context.Request.Url.Query.GetValueOrDefault("messageToken","none")));
+        return ackRequest.ToString();
+        }</set-body>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        <!--Set response based on the success of the acknowledge-->
+        <set-variable name="response-body" value="@(context.Response.Body.As<JObject>())" />
+        <set-variable name="acknowledge-successful" value="@{
+        return ((JObject)context.Variables["response-body"])["succeededLockTokens"].Count() == 1;
+        }" />
+        <choose>
+            <when condition="@((bool)context.Variables["acknowledge-successful"])">
+                <set-body template="none" />
+                <set-status code="200" reason="OK" />
+            </when>
+            <otherwise>
+                <set-body template="none">@{
+                    var error = ((JObject)context.Variables["response-body"]).SelectToken("failedLockTokens[0].error.message").ToString();
+                    var errorResponse = new JObject();
+                    errorResponse["error"] = error;
+                    return errorResponse.ToString();
+                }</set-body>
+                <set-status code="400" reason="Bad Request" />
+            </otherwise>
+        </choose>
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

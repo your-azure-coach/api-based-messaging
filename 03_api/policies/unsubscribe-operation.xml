@@ -1,0 +1,35 @@
+<policies>
+    <inbound>
+        <base />
+        <!-- Check if client has required role -->
+        <choose>
+            <when condition="@(((JArray)context.Variables["rbac-roles"]).Any(item => item.Value<string>() == "subscribe_*" || item.Value<string>() == "subscribe_##message-type##") == false)">
+                <return-response>
+                    <set-status code="403" reason="Forbidden" />
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                    <set-body>{ "error" : "Client does not have the required roles 'subscribe_##message-type##' or 'subscribe_*'" }</set-body>
+                </return-response>
+            </when>
+            <otherwise />
+        </choose>
+        <!-- Delete topic subscription in event grid for message type -->
+        <set-method>DELETE</set-method>
+        <set-backend-service base-url="https://management.azure.com" />
+        <authentication-managed-identity resource="https://management.azure.com/" ignore-error="false" />
+        <rewrite-uri template="@("{{messaging-api-event-grid-namespace-id}}/topics/{{messaging-api-topic-name}}/eventSubscriptions/" + (string)context.Variables["rbac-id"] + "-##subscription-name##?api-version=2024-06-01-preview")" copy-unmatched-params="false" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <!-- Return OK response -->
+        <set-body template="none" />
+        <set-status code="201" reason="Created" />
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

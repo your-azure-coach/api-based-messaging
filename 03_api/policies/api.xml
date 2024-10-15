@@ -1,0 +1,89 @@
+<policies>
+    <inbound>
+        <base />
+        <choose>
+            <!-- Check presence of the Authorization header -->
+            <when condition="@(context.Request.Headers.ContainsKey("Authorization") == true)">
+                <!--Validate JWT - Modify values in case you don't want to use the default authentication provider-->
+                <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized" require-expiration-time="true" require-scheme="Bearer" require-signed-tokens="true" clock-skew="0">
+                    <openid-config url="{{messaging-api-default-openid-config-url}}"/>
+                    <audiences>
+                        <audience>{{messaging-api-default-audience}}</audience>
+                    </audiences>
+                    <issuers>
+                        <issuer>{{messaging-api-default-issuer}}</issuer>
+                    </issuers>
+                </validate-jwt>
+                <!-- Retrieve subject from JWT -->
+                <set-variable name="subject" value="@(context.Request.Headers.GetValueOrDefault("Authorization")?.Split(' ')?.Length > 1 ? context.Request.Headers.GetValueOrDefault("Authorization")?.Split(' ')?[1].AsJwt()?.Claims["sub"]?.FirstOrDefault() : null)" />
+                <choose>
+                    <!-- Check presence of subject claim in JWT -->
+                    <when condition="@(context.Variables["subject"] != null)">
+                        <!-- Get RBAC Config and retrieve configured roles -->
+                        <cache-lookup-value key="rbac-config-key" variable-name="rbac-config" />
+                        <choose>
+                            <when condition="@(context.Variables.ContainsKey("rbac-config") == false)">
+                                <send-request mode="new" response-variable-name="rbac-config-response" timeout="10" ignore-error="false">
+                                    <set-url>https://{{messaging-api-storage-account-name}}.blob.core.windows.net/{{messaging-api-rbac-config-blob-name}}</set-url>
+                                    <set-method>GET</set-method>
+                                    <set-header name="x-ms-version" exists-action="override">
+                                        <value>2019-07-07</value>
+                                    </set-header>
+                                    <authentication-managed-identity resource="https://storage.azure.com" />
+                                </send-request>
+                                <set-variable name="rbac-config" value="@(((IResponse)context.Variables["rbac-config-response"]).Body.As<JArray>())" />
+                                <cache-store-value key="rbac-config-key" value="@((JArray)context.Variables["rbac-config"])" duration="{{messaging-api-rbac-config-refresh-interval}}" />
+                            </when>
+                        </choose>
+                        <set-variable name="rbac-roles" value="@(((JArray)context.Variables["rbac-config"]).Where(obj => obj["subjects"] != null && obj["subjects"].Any(sub => sub.ToString() == (string)context.Variables["subject"])).Select(obj => obj["roles"]).FirstOrDefault())" />
+                        <choose>
+                            <when condition="@(context.Variables["rbac-roles"] != null)">
+                                <set-variable name="rbac-name" value="@(((JArray)context.Variables["rbac-config"]).Where(obj => obj["subjects"] != null && obj["subjects"].Any(sub => sub.ToString() == (string)context.Variables["subject"])).Select(obj => obj["name"]).FirstOrDefault().ToString())" />
+                                <set-variable name="rbac-id" value="@(((JArray)context.Variables["rbac-config"]).Where(obj => obj["subjects"] != null && obj["subjects"].Any(sub => sub.ToString() == (string)context.Variables["subject"])).Select(obj => obj["id"]).FirstOrDefault().ToString())" />
+                            </when>
+                            <otherwise>
+                                <!-- Return exception that the subject is unknown -->
+                                <return-response>
+                                    <set-status code="403" reason="Forbidden" />
+                                    <set-header name="Content-Type" exists-action="override">
+                                        <value>application/json</value>
+                                    </set-header>
+                                    <set-body>{ "error" : "The subject of your JWT is not known in our authorization policies." }</set-body>
+                                </return-response>
+                            </otherwise>
+                        </choose>
+                    </when>
+                    <otherwise>
+                        <!-- Return exception when no sub claim or JWT token is presnet -->
+                        <return-response>
+                            <set-status code="401" reason="Unauthorized" />
+                            <set-header name="Content-Type" exists-action="override">
+                                <value>application/json</value>
+                            </set-header>
+                            <set-body>{ "error" : "Request does not contain valid JWT, with the 'sub' claim." }</set-body>
+                        </return-response>
+                    </otherwise>
+                </choose>
+            </when>
+            <otherwise>
+                <!-- Return exception when no sub claim or JWT token is presnet -->
+                <return-response>
+                    <set-status code="401" reason="Unauthorized" />
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                    <set-body>{ "error" : "Request does not contain the 'Authorization' header with a valid JWT." }</set-body>
+                </return-response>
+            </otherwise>
+        </choose>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

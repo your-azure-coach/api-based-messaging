@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "metadata": {
+      "$ref": "#/components/schemas/header.v1"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "customerId": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "vatNumber": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "billingAddress": {
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "customerId",
+        "vatNumber",
+        "billingAddress"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "metadata"
+  ]
+}
+

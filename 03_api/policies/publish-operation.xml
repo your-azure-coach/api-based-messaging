@@ -1,0 +1,57 @@
+<policies>
+    <inbound>
+        <base />
+        <!-- Check if client has required role -->
+        <choose>
+            <when condition="@(((JArray)context.Variables["rbac-roles"]).Any(item => item.Value<string>() == "publish_*" || item.Value<string>() == "publish_##message-type##") == false)">
+                <return-response>
+                    <set-status code="403" reason="Forbidden" />
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                    <set-body>{ "error" : "Client does not have the required roles 'publish_##message-type##' or 'publish_*'" }</set-body>
+                </return-response>
+            </when>
+            <otherwise />
+        </choose>
+        <!--Validate message against Open API specification-->
+        <validate-content unspecified-content-type-action="prevent" max-size="2000" size-exceeded-action="prevent" errors-variable-name="validation-errors">
+            <content type="application/json" validate-as="json" action="prevent" />
+        </validate-content>
+        <!--Wrap message in CloudEvents envelope-->
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/cloudevents+json</value>
+        </set-header>
+        <set-body template="none">@{
+        JObject cloudEventsEnvelope = new JObject(
+            new JProperty("specversion", "1.0"),
+            new JProperty("type", (string)context.Request.Body.As<JObject>(preserveContent: true).SelectToken("metadata.type")),
+            new JProperty("id", (string)context.Request.Body.As<JObject>(preserveContent: true).SelectToken("metadata.id")),
+            new JProperty("source", "/" + (string)context.Request.Body.As<JObject>(preserveContent: true).SelectToken("metadata.source"))            
+        );
+
+        string clientTrackingId = context.Request.Headers.GetValueOrDefault("x-ms-client-tracking-id","none");
+        if(clientTrackingId != "none")
+        {
+            cloudEventsEnvelope.Add("clienttrackingid", clientTrackingId);
+        }
+        
+        cloudEventsEnvelope.Add("data", context.Request.Body.As<JObject>());
+        return cloudEventsEnvelope.ToString();
+        }</set-body>
+        <!--Publish message to Event Grid-->
+        <set-backend-service base-url="{{messaging-api-eventgrid-url}}" />
+        <authentication-managed-identity resource="https://eventgrid.azure.net" ignore-error="false" />
+        <rewrite-uri template="/topics/{{messaging-api-topic-name}}:publish?api-version=2023-06-01-preview" copy-unmatched-params="false" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        <set-body template="none"></set-body>
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

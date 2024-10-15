@@ -1,0 +1,27 @@
+[
+    {
+        "id": "system1",
+        "name": "messaging-api-sender-and-receiver",
+        "subjects": [
+            "a58836cb-57c1-40ac-92cc-e74b1326f858", 
+            "20c59a12-441c-4444-92ee-8b017e4f06ff",
+            "dcc9144d-609c-4a30-b4e9-eed7e609398d"
+        ],
+        "roles": [
+            "publish_*",
+            "subscribe_*"
+        ]
+    },
+    {
+        "id": "system2",
+        "name": "messaging-api-simulation-client",
+        "subjects": [
+            "41f64145-3680-45c9-be51-f6396ff6d39f"
+        ],
+        "roles": [
+            "publish_customer.onboarded.v1",
+            "subscribe_*"
+        ]
+    }
+]
+

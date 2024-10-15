@@ -1,0 +1,35 @@
+<policies>
+    <inbound>
+        <base />
+        <set-backend-service base-url="https://management.azure.com" />
+        <authentication-managed-identity resource="https://management.azure.com/" ignore-error="false" />
+        <rewrite-uri template="@("{{messaging-api-event-grid-namespace-id}}/topics/{{messaging-api-topic-name}}/eventSubscriptions?api-version=2024-06-01-preview&$filter=contains(name, '" + (string)context.Variables["rbac-id"] + "')")" copy-unmatched-params="false" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <set-variable name="response-body" value="@(context.Response.Body.As<JObject>())" />
+        <set-body template="none">@{
+        JArray subscriptionsResponse = new JArray();
+        foreach(var subscription in ((JObject)context.Variables["response-body"])["value"])
+        {
+            if(subscription.SelectToken("properties.provisioningState").ToString() == "Succeeded")
+            {
+                var deliveryMode = subscription.SelectToken("properties.deliveryConfiguration.deliveryMode").ToString();
+                JObject sub = new JObject(
+                    new JProperty("messageType", subscription.SelectToken("properties.filtersConfiguration.includedEventTypes[0]")),
+                    new JProperty("subscriptionType", deliveryMode == "Queue" ? "pull" : "push" ),
+                    new JProperty("createdAt", subscription.SelectToken("systemData.createdAt"))
+                );
+                subscriptionsResponse.Add(sub);
+            };
+        };
+        return subscriptionsResponse.ToString();
+        }</set-body>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>
